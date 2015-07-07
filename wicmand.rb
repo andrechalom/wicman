@@ -10,7 +10,7 @@ require 'digest'
 require 'socket'
 require 'timeout'
 
-Version = "0.0.1"
+Version = "0.0.2"
 
 # Parses command line arguments
 options = {}
@@ -46,12 +46,6 @@ class Wicmand
 		setupDirs
 		@interface = @config["interface"]
 
-		@monitor = fork { setupMonitor} 
-		Process.detach @monitor
-#		trap ('TERM') { quit }
-#		trap ('KILL') { quit }
-#		trap('INT') { quit }
-
 		puts "configuring interface #{@interface}" if @options[:verbose]
 		Open3.popen3('ifconfig', @interface, 'up') { |i,o,e,t|
 			raise "Error configuring interface #{@interface}!\nCheck that the interface exists" unless t.value == 0
@@ -59,11 +53,6 @@ class Wicmand
 		setCache
 		autoConnect
 		setupListener  # must be the LAST THING done by initialize as it never returns
-	end
-	# Mantains health checks
-	def setupMonitor
-		loop do
-		end
 	end
 	# Creates a listening socket for client connections
 	def setupListener
@@ -99,13 +88,6 @@ class Wicmand
 			client.close
 		end
 	end
-	# Cleans up and quits
-#	def quit
-#		puts "wicmand terminating..." if @options[:verbose]
-#		disconnect!
-#		Process.kill 9, @monitor
-#		exit
-#	end
 	# Hashes the ESSID to make sure we don't do anything funny on the filesystem
 	def configFile(essid)
 		File.join(@config["varlib"], Digest::MD5.hexdigest(essid))
@@ -192,7 +174,7 @@ class Wicmand
 		}
 		@cacheTime = Time.now
 	end
-	# Returns the available networks. TODO: tidy up the list
+	# Returns the available networks.
 	def getNetworks(plain=false)
 		if Time.now - @cacheTime > @config["validcache"]
 			setCache

@@ -10,7 +10,7 @@ require 'yaml'
 require 'optparse'
 require 'socket'
 
-Version = "0.0.1"
+Version = "0.0.2"
 
 # Parses command line arguments
 options = {}
