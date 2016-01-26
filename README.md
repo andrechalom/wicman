@@ -45,13 +45,10 @@ and Straightforward). For instance, DNS servers are managed by
 and there is no provision for managing these options inside wicman.
 
 # TO DO:
-- drop iwlist for wpa_supplicant interface
-- drop killall for pkill (and manage spawned processes pids)
 - stop passphrase from being written to disk
 - make an option for "show connection status"
 - health checks (autoconnect if dropped, change nets if 8.8.8.8 is unreachable)
-- option to cleanly shutdown daemon
-- extensions
+- extensions (iw instead of iwlist, dhcpd instead of dhclient, etc)
 - tidy up install.sh
 - option to sort list by Name or Strenght?
-- start w/o config file using reasonable defaults
+- start w/o config file using reasonable defaults?
