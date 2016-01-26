@@ -10,7 +10,7 @@ require 'digest'
 require 'socket'
 require 'timeout'
 
-Version = "0.0.3"
+Version = "0.0.4"
 
 # Parses command line arguments
 options = {}
@@ -43,37 +43,62 @@ class Wicmand
     def pidfile (str = "wicmand")
             File.join(@config["varlib"],"#{str}.pid")
     end
+    def clean_exit
+        puts "wicman exiting...\n"
+        File.delete(pidfile) rescue nil
+        exit
+    end
     def pidMan #Manages pid-related and signals
 		Process.daemon(nil, true) if @options[:daemon]
+        Signal.trap("SIGHUP") {clean_exit} 
+        Signal.trap("SIGINT") {clean_exit} 
         if @options[:kill] then # If --kill was given, kill the active instance
             pid = 0
             File.open(pidfile, 'r') { |f| pid = f.gets.chomp.to_i }
-            puts "Killing process ID #{pid}"
             Process.kill("SIGHUP", pid)
-            File.delete(pidfile)
             exit
-        end # else check for an instance, and start
-        puts "WARNING: overwriting wicmand pid file." if File.exists?(pidfile)
+        end 
+        # else check for an instance, and start
+        if File.exists?(pidfile)
+            puts "WARNING: wicmand pid file found." 
+            File.open(pidfile, 'r') { |f| pid = f.gets.chomp.to_i }
+            Process.kill("SIGHUP", pid) rescue nil
+        end
         File.open(pidfile, 'w') { |f| f.puts Process.pid }
     end
-	def initialize(options = {}) 
-		@options = options
-		puts "wicmand starting..."
-		raise 'Must run as root' unless Process.uid == 0
-
-		@config = YAML.load_file(@options[:configfile])
-		setupDirs
-        pidMan
-
-		@interface = @config["interface"]
+    def ifup
 		puts "configuring interface #{@interface}" if @options[:verbose]
 		Open3.popen3('ifconfig', @interface, 'up') { |i,o,e,t|
 			raise "Error configuring interface #{@interface}!\nCheck that the interface exists" unless t.value == 0
 		}
+    end
+	def initialize(options = {}) 
+		@options = options
+		puts "wicmand #{Version} starting..." unless @options[:kill]
+		raise 'wicmand must run as root' unless Process.uid == 0
+
+		@config = YAML.load_file(@options[:configfile])
+		@interface = @config["interface"]
+		setupDirs
+        pidMan
+
 		setCache
 		autoConnect
 		setupListener  # must be the LAST THING done by initialize as it never returns
 	end
+    def healthCheck
+        router = "192.168.1.1" # TODO: get this from "route -n"
+        internet = "8.8.8.8" # TODO: get this from config
+        Open3.popen3('ping', '-c 3', router) { |i,o,e,t|
+            i = 0
+            while output = o.gets
+                if / \d\.\d\d\d\/(\d\.\d\d\d)/ =~ output
+                    i = $1
+                end
+            end
+            return "I #{i}"
+        }
+    end
 	# Creates a listening socket for client connections
 	def setupListener
 		sfile = File.join(@config["temp"], "wicmand.socket")
@@ -85,6 +110,8 @@ class Wicmand
                 client = @socket.accept
                 conn = client.gets.chomp
                 case conn
+                when /^health/
+                    client.write healthCheck
                 when /^disc/
                     client.write disconnect!
                 when /^conn "(.*)" "(.*)"/ 
@@ -142,6 +169,7 @@ class Wicmand
 	# Creates and ensures permission/ownership of the /var/lib directory used to store config
 	def setupDirs
 		puts "configuring varlib directory..." if @options[:verbose]
+        raise "Malformed configuration file" if @config["varlib"].nil?
 		Dir.mkdir(@config["varlib"], 0700) unless Dir.exists?(@config["varlib"])
 		File.chown(0, 0, @config["varlib"])
 		File.chmod(0700, @config["varlib"])
@@ -162,9 +190,7 @@ class Wicmand
 		disconnect!
 		puts "Connecting to #{essid}" if @options[:verbose]
 		pid = fork {
-			Open3.popen3('ifconfig', @interface, 'up') { |i,o,e,t|
-				raise "Error configuring interface #{@interface}!\nCheck that the interface exists" unless t.value == 0
-			}
+            ifup
 			Open3.popen3('wpa_supplicant','-B', '-i', @interface, '-c', configFile(essid), 
                          '-P', pidfile("wpa_supplicant")) { |i,o,e,t|
 				raise "Error aquiring network #{essid}!\nCheck that the passphrase configured is correct" unless t.value == 0
@@ -183,12 +209,14 @@ class Wicmand
 			Process.kill 9, pid
 			# collect status so it doesn't stick around as zombie process
 			Process.wait pid
+            puts "Unable to connect after 20 seconds, giving up!" if @options[:verbose]
 			return "Unable to connect after 20 seconds, giving up!"
 		end
 	end
 	# Creates a list with available interfaces. Caches results for "cache" secs
 	def setCache
 		puts "scanning available networks" if @options[:verbose]
+        ifup
 		@available = []
 		# Code here could use a clean up
 		Open3.popen3('iwlist', @interface, 'scan') { |i,o,e,t|

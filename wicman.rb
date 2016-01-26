@@ -10,7 +10,7 @@ require 'yaml'
 require 'optparse'
 require 'socket'
 
-Version = "0.0.3"
+Version = "0.0.4"
 
 # Parses command line arguments
 options = {}
@@ -68,6 +68,9 @@ optparse = OptionParser.new do |opts|
 	end
 	opts.on( '-d', '--disconnect', 'Disconnects from all networks' ) do 
 		options[:command] = "disc"
+	end
+	opts.on( '-H', '--health', 'Forces a health check on the connection' ) do 
+		options[:command] = "health"
 	end
 	opts.on( '-h', '--help', 'Display this screen' ) {
 		puts opts
