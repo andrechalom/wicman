@@ -10,7 +10,7 @@ these connection managers before starting wicman
 
 # Depends:
 wicman depends on ruby (tested on 1.9.3), wpa_supplicant, iwlist
-and ifconfig. You can install these with:
+and ifconfig/route from net-tools. You can install these with:
 ```
 sudo apt-get install ruby wpasupplicant wireless-tools net-tools
 ```

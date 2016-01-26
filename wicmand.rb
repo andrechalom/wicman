@@ -44,7 +44,8 @@ class Wicmand
             File.join(@config["varlib"],"#{str}.pid")
     end
     def clean_exit
-        puts "wicman exiting...\n"
+        puts "wicmand exiting...\n"
+        disconnect!
         File.delete(pidfile) rescue nil
         exit
     end
@@ -54,7 +55,7 @@ class Wicmand
         Signal.trap("SIGINT") {clean_exit} 
         if @options[:kill] then # If --kill was given, kill the active instance
             pid = 0
-            File.open(pidfile, 'r') { |f| pid = f.gets.chomp.to_i }
+            File.open(pidfile, 'r') { |f| pid = f.gets.chomp.to_i } rescue raise "wicmand pid file not found"
             Process.kill("SIGHUP", pid)
             exit
         end 
@@ -73,31 +74,49 @@ class Wicmand
 		}
     end
 	def initialize(options = {}) 
-		@options = options
-		puts "wicmand #{Version} starting..." unless @options[:kill]
 		raise 'wicmand must run as root' unless Process.uid == 0
-
+		@options = options
 		@config = YAML.load_file(@options[:configfile])
-		@interface = @config["interface"]
+        @connected = nil
 		setupDirs
         pidMan
 
+		@interface = @config["interface"]
+		puts "wicmand #{Version} starting..."
 		setCache
 		autoConnect
 		setupListener  # must be the LAST THING done by initialize as it never returns
 	end
-    def healthCheck
-        router = "192.168.1.1" # TODO: get this from "route -n"
-        internet = "8.8.8.8" # TODO: get this from config
-        Open3.popen3('ping', '-c 3', router) { |i,o,e,t|
+    def getPing (ip)
+        Open3.popen3('ping', '-n', '-c 4', ip) { |i,o,e,t|
             i = 0
             while output = o.gets
-                if / \d\.\d\d\d\/(\d\.\d\d\d)/ =~ output
-                    i = $1
+                puts output 
+                if / \d*\.\d*\/(\d*\.\d*)/ =~ output
+                    return $1.to_i
                 end
             end
-            return "I #{i}"
         }
+    end
+    def healthCheck
+        @router = "192.168.1.1" # TODO: get this from "route -n"
+        @internet = "8.8.8.8" # TODO: get this from config
+		puts "pinging router #{@router}" if @options[:verbose]
+        @router_ping = getPing(@router)
+		puts "pinging internet #{@internet}" if @options[:verbose]
+        @internet_ping = getPing(@internet)
+        r = "Router: #{@router}\t"
+        if @router_ping >0 
+            r << "Average ping: #{@router_ping}\n"
+        else
+            r << "Status: unreachable.\n"
+        end
+        if @internet_ping > 0 
+            r << "Internet ping: #{internet_ping}\n"
+        else
+            r << "Internet unreachable"
+        end
+        return r
     end
 	# Creates a listening socket for client connections
 	def setupListener
@@ -144,7 +163,7 @@ class Wicmand
                 when /^list/
                     client.write getNetworks
                 when /^show/
-                    client.write showAC
+                    client.write showStatus
                 else
                     client.write "Your request is unsupported: #{conn}"
                 end
@@ -182,6 +201,7 @@ class Wicmand
 		Open3.popen3('kill', file) { |i,o,e,t| }
         File.open(pidfile("dhclient"), 'r') {|f| file = f.gets.chomp } rescue nil
 		Open3.popen3('kill', file) { |i,o,e,t| }
+        @connected = nil
 		return "Disconnected"
 	end
 	# Attempts to connect to a given network. BLOCKING
@@ -203,6 +223,7 @@ class Wicmand
 		}
 		begin Timeout.timeout(20) do
 			Process.wait
+            @connected = essid
 			return "Connected to #{essid}"
 		end
 		rescue Timeout::Error
@@ -296,6 +317,17 @@ class Wicmand
 		File.open(File.join(@config["varlib"], "auto.conf"), 'w') { |f| f.puts autoConfig.to_yaml }
 		return "Configured to avoid autoconnect to #{essid}"
 	end
+    def showStatus
+        r = "wicman version #{Version} status:\n"
+        if @connected.nil?
+            r << "Not connected\n\n"
+        else
+            r << "Connected to #{@connected}\n"
+            r << healthCheck << "\n\n"
+        end
+        r << showAC
+        return r
+    end
 	def showAC
 		autoConfig = YAML.load_file(File.join(@config["varlib"], "auto.conf")) rescue autoConfig = {}
 		return "No networks configured for autoconnect" if autoConfig == {}
