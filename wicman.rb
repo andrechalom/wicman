@@ -10,7 +10,7 @@ require 'yaml'
 require 'optparse'
 require 'socket'
 
-Version = "0.0.2"
+Version = "0.0.3"
 
 # Parses command line arguments
 options = {}
@@ -75,10 +75,16 @@ optparse = OptionParser.new do |opts|
 	}
     opts.separator ""
     opts.separator "Specific options:"
-	opts.on( '-p', '--passphrase pp', 
-			'With -g, sets the passphrase',
-			'If no passphrase is given, reads from stdin' ) do |pp|
-		raise "-p should only be used with -g" if options[:command] != "conf"
+	opts.on( '-p', '--passphrase [pp]', 
+			'With -g or -c, sets the passphrase',
+			'If -p is specified but no passphrase is given, reads from stdin' ) do |pp|
+		raise "-p should only be used after -g or -c" if options[:command] != "conf" and options[:command] != "conn"
+        if pp.nil? then
+            puts "Enter passphrase for network #{options[:essid]}:"
+            system "stty -echo"
+            pp = gets.chomp()
+            system "stty echo"
+        end
 		options[:pp] = pp
 	end
 	opts.on( '-r', '--priority pr', 'With -a, sets the priority for this network',
@@ -118,31 +124,42 @@ rescue
 end
 
 sfile = File.join(config["temp"], "wicmand.socket")
-puts "Opening communication with wicmand daemon on #{sfile}" if options[:verbose]
-begin
-	client = UNIXSocket.new sfile
-rescue
-	puts "Unable to open communication with wicmand daemon.\nMake sure it is running and using the same configuration file as this program."
-	puts $!
-	exit
+
+status = ""
+
+while status == "" do
+    puts "Opening communication with wicmand daemon on #{sfile}" if options[:verbose]
+    begin
+        client = UNIXSocket.new sfile
+    rescue
+        puts "Unable to open communication with wicmand daemon.\nMake sure it is running and using the same configuration file as this program."
+        puts $!
+        exit
+    end
+    # Sends the message to the daemon
+    begin
+        client.write "#{options[:command]} \"#{options[:essid]}\" \"#{options[:pp]}\" #{options[:pr]}\n"
+    rescue
+        puts "Unable to communicate with wicmand daemon. Error was:"
+        puts $!
+        exit
+    end
+
+    # Gets the daemon response
+    status = client.gets.chomp
+
+    # Treats internal messages
+    if status == "needpp"
+        puts "Enter passphrase for network #{options[:essid]}:"
+        system "stty -echo"
+        options[:pp] = gets.chomp()
+        system "stty echo"
+        status = ""
+    end
 end
 
-if options[:command] == "conf" and options[:pp].nil?
-	puts "Enter passphrase for network #{options[:essid]}:"
-	system "stty -echo"
-	options[:pp] = gets.chomp()
-	system "stty echo"
-end
-
-begin
-	client.write "#{options[:command]} \"#{options[:essid]}\" \"#{options[:pp]}\" #{options[:pr]}\n"
-rescue
-	puts "Unable to communicate with wicmand daemon. Error was:"
-	puts $!
-	exit
-end
-
+# if it reaches here, then the status is not an internal message, so we just dump everything to screen
+puts status
 loop {
-	puts client.gets.chomp
+    puts client.gets.chomp
 } rescue nil
-

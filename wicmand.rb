@@ -10,7 +10,7 @@ require 'digest'
 require 'socket'
 require 'timeout'
 
-Version = "0.0.2"
+Version = "0.0.3"
 
 # Parses command line arguments
 options = {}
@@ -59,34 +59,51 @@ class Wicmand
 		sfile = File.join(@config["temp"], "wicmand.socket")
 		File.unlink(sfile) rescue nil;
 		@socket = UNIXServer.new(sfile)
-		File.chmod(0666, sfile)
-		while true
-			client = @socket.accept
-			conn = client.gets.chomp
-			case conn
-			when /^disc/
-				client.write disconnect!
-			when /^conn "(.*)" "/ # the second " opens the passphrase field
-				if $1 == ""
-					client.write autoConnect
-				else
-					client.write connect!($1)
-				end
-			when /^auto "(.*)" "(.*)" (\d*)/ 
-				client.write addToAC($1, $3)
-			when /^xauto "(.*)" "/ 
-				client.write dropFromAC($1)
-			when /^conf "(.*)" "(.*)"/
-				client.write genConfig($1, $2)
-			when /^list/
-				client.write getNetworks
-			when /^show/
-				client.write showAC
-			else
-				client.write "Your request is unsupported: #{conn}"
-			end
-			client.close
-		end
+        File.chmod(0666, sfile)
+        while true
+            begin
+                client = @socket.accept
+                conn = client.gets.chomp
+                case conn
+                when /^disc/
+                    client.write disconnect!
+                when /^conn "(.*)" "(.*)"/ 
+                    if $1 == "" then
+                        # No ESSID, should autoconnect
+                        client.write autoConnect
+                    elsif $2 != "" then
+                        # Forcing new passphrase
+                        status = genConfig($1, $2)
+                        if status != "Configuration ok"
+                            client.write status # Some error
+                        else
+                            client.write connect!($1)
+                        end
+                    else
+                        # normal connection; if this fails tries to generate conf
+                        status = connect!($1)
+                        if status == "needconf"
+                            client.write "needpp"
+                        else
+                            client.write status # Error or success message
+                        end
+                    end
+                when /^auto "(.*)" "(.*)" (\d*)/ 
+                    client.write addToAC($1, $3)
+                when /^xauto "(.*)" "/ 
+                    client.write dropFromAC($1)
+                when /^conf "(.*)" "(.*)"/
+                    client.write genConfig($1, $2)
+                when /^list/
+                    client.write getNetworks
+                when /^show/
+                    client.write showAC
+                else
+                    client.write "Your request is unsupported: #{conn}"
+                end
+                client.close
+            end rescue nil # Ensures that the daemon does not quit because of errors here
+        end
 	end
 	# Hashes the ESSID to make sure we don't do anything funny on the filesystem
 	def configFile(essid)
@@ -95,6 +112,7 @@ class Wicmand
 	# Generates the wpa configuration file for an essid/passphrase and stores it in varlib
 	def genConfig(essid, passphrase)
 		puts "Generating configuration for #{essid}" if @options[:verbose]
+        return "needpp" if passphrase == ""
 		Open3.popen3('wpa_passphrase', essid, passphrase) { |i,o,e,t|
 			return "Error generating configuration for ESSID #{essid}\nCheck that wpa_supplicant is installed" unless t.value == 0
 			File.open(configFile(essid), 'w') { |f| f.puts o.gets(nil) }
@@ -117,7 +135,7 @@ class Wicmand
 	end
 	# Attempts to connect to a given network. BLOCKING
 	def connect!(essid)
-		return "Configuration file for #{essid} not found.\nUse wicman -g to create config first." unless File.exists?(configFile(essid))
+		return "needconf" unless File.exists?(configFile(essid))
 		disconnect!
 		puts "Connecting to #{essid}" if @options[:verbose]
 		pid = fork {
