@@ -40,8 +40,8 @@ end
 optparse.parse!
 
 class Wicmand
-    def pidfile
-            File.join(@config["varlib"],"wicmand.pid")
+    def pidfile (str = "wicmand")
+            File.join(@config["varlib"],"#{str}.pid")
     end
     def pidMan #Manages pid-related and signals
 		Process.daemon(nil, true) if @options[:daemon]
@@ -149,8 +149,11 @@ class Wicmand
 	# Puts interface down and disconnects
 	def disconnect!
 		puts "Disconnecting from all networks!" if @options[:verbose]
-		Open3.popen3('killall', 'wpa_supplicant') { |i,o,e,t| }
-		Open3.popen3('killall', 'dhclient') { |i,o,e,t| }
+        file = ""
+        File.open(pidfile("wpa_supplicant"), 'r') {|f| file = f.gets.chomp } rescue nil
+		Open3.popen3('kill', file) { |i,o,e,t| }
+        File.open(pidfile("dhclient"), 'r') {|f| file = f.gets.chomp } rescue nil
+		Open3.popen3('kill', file) { |i,o,e,t| }
 		return "Disconnected"
 	end
 	# Attempts to connect to a given network. BLOCKING
@@ -162,11 +165,12 @@ class Wicmand
 			Open3.popen3('ifconfig', @interface, 'up') { |i,o,e,t|
 				raise "Error configuring interface #{@interface}!\nCheck that the interface exists" unless t.value == 0
 			}
-			Open3.popen3('wpa_supplicant','-B', '-i', @interface, '-c', configFile(essid)) { |i,o,e,t|
+			Open3.popen3('wpa_supplicant','-B', '-i', @interface, '-c', configFile(essid), 
+                         '-P', pidfile("wpa_supplicant")) { |i,o,e,t|
 				raise "Error aquiring network #{essid}!\nCheck that the passphrase configured is correct" unless t.value == 0
 			}
 			sleep(2)
-			Open3.popen3('dhclient', @interface) { |i, o, e, t|
+			Open3.popen3('dhclient', @interface, '-pf', pidfile("dhclient")) { |i, o, e, t|
 				raise "Error aquiring IP from network #{essid}!" unless t.value == 0
 			}
 			puts "Connection established" if @options[:verbose]
