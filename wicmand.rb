@@ -28,6 +28,10 @@ optparse = OptionParser.new do |opts|
 	opts.on( '-n', '--no_daemon', 'Don\'t run as a daemon','(runs in the foreground)' ) {
 		options[:daemon] = false
 	}
+    options[:kill] = false
+	opts.on( '-k', '--kill', 'Force closes an active instance of wicmand' ) {
+		options[:kill] = true
+	}
 	opts.on( '-h', '--help', 'Display this screen' ) {
 		puts opts
 		exit
@@ -36,16 +40,32 @@ end
 optparse.parse!
 
 class Wicmand
+    def pidfile
+            File.join(@config["varlib"],"wicmand.pid")
+    end
+    def pidMan #Manages pid-related and signals
+		Process.daemon(nil, true) if @options[:daemon]
+        if @options[:kill] then # If --kill was given, kill the active instance
+            pid = 0
+            File.open(pidfile, 'r') { |f| pid = f.gets.chomp.to_i }
+            puts "Killing process ID #{pid}"
+            Process.kill("SIGHUP", pid)
+            File.delete(pidfile)
+            exit
+        end # else check for an instance, and start
+        puts "WARNING: overwriting wicmand pid file." if File.exists?(pidfile)
+        File.open(pidfile, 'w') { |f| f.puts Process.pid }
+    end
 	def initialize(options = {}) 
 		@options = options
 		puts "wicmand starting..."
 		raise 'Must run as root' unless Process.uid == 0
-		Process.daemon(nil, true) if @options[:daemon]
 
 		@config = YAML.load_file(@options[:configfile])
 		setupDirs
-		@interface = @config["interface"]
+        pidMan
 
+		@interface = @config["interface"]
 		puts "configuring interface #{@interface}" if @options[:verbose]
 		Open3.popen3('ifconfig', @interface, 'up') { |i,o,e,t|
 			raise "Error configuring interface #{@interface}!\nCheck that the interface exists" unless t.value == 0
