@@ -10,7 +10,7 @@ require 'digest'
 require 'socket'
 require 'timeout'
 
-Version = "0.0.4"
+Version = "0.0.5"
 
 # Parses command line arguments
 options = {}
@@ -28,6 +28,10 @@ optparse = OptionParser.new do |opts|
 	opts.on( '-n', '--no_daemon', 'Don\'t run as a daemon','(runs in the foreground)' ) {
 		options[:daemon] = false
 	}
+    options[:status] = false
+	opts.on( '-s', '--status', 'Shows only the daemon running status' ) {
+		options[:status] = true
+	}
     options[:kill] = false
 	opts.on( '-k', '--kill', 'Force closes an active instance of wicmand' ) {
 		options[:kill] = true
@@ -39,46 +43,69 @@ optparse = OptionParser.new do |opts|
 end
 optparse.parse!
 
-class Wicmand
-    def pidfile (str = "wicmand")
-            File.join(@config["varlib"],"#{str}.pid")
+# Handles the "--kill" option, which is not related to the core wicman
+if options[:kill] then # If --kill was given, kill the active instance
+    if options[:status]
+        puts "Options --kill and --status are mutually exclusive, choose one"
+        exit
     end
+    puts "Ending all active wicmand processes"
+    Open3.popen3('pkill', '-HUP', '-f', 'wicmand') { |i,o,e,t| }
+    exit
+end 
+
+class Wicmand
+    ########## Functions related to managing the wicmand life cycle: daemon status, kill, managing pids
     def clean_exit
         puts "wicmand exiting...\n"
         disconnect!
         File.delete(pidfile) rescue nil
         exit
     end
+    def daemonStatus
+        if File.exists?(pidfile)
+            pid = 0
+            File.open(pidfile) { |f| pid = f.gets.chomp }
+
+            Open3.popen3('ps', '-p', pid) { |i,o,e,t|
+                o.gets
+                line = o.gets
+                if line =~ /ruby/ then
+                    puts "wicmand is up"
+                else
+                    puts "wicmand is down"
+                end
+            }
+        else
+            puts "wicmand is down"
+        end
+        exit
+    end
+    def pidfile (str = "wicmand")
+            File.join(@config["varlib"],"#{str}.pid")
+    end
     def pidMan #Manages pid-related and signals
 		Process.daemon(nil, true) if @options[:daemon]
         Signal.trap("SIGHUP") {clean_exit} 
         Signal.trap("SIGINT") {clean_exit} 
-        if @options[:kill] then # If --kill was given, kill the active instance
-            pid = 0
-            File.open(pidfile, 'r') { |f| pid = f.gets.chomp.to_i } rescue raise "wicmand pid file not found"
-            Process.kill("SIGHUP", pid)
-            exit
-        end 
         # else check for an instance, and start
         if File.exists?(pidfile)
             puts "WARNING: wicmand pid file found." 
-            File.open(pidfile, 'r') { |f| pid = f.gets.chomp.to_i }
-            Process.kill("SIGHUP", pid) rescue nil
+            pid = 0
+            File.open(pidfile, 'r') { |f| pid = f.gets.chomp }
+            Open3.popen3('kill', '-HUP', pid) { |i,o,e,t| }
+            sleep(2)
         end
         File.open(pidfile, 'w') { |f| f.puts Process.pid }
     end
-    def ifup
-		puts "configuring interface #{@interface}" if @options[:verbose]
-		Open3.popen3('ifconfig', @interface, 'up') { |i,o,e,t|
-			raise "Error configuring interface #{@interface}!\nCheck that the interface exists" unless t.value == 0
-		}
-    end
+    ########### Initialization code
 	def initialize(options = {}) 
 		raise 'wicmand must run as root' unless Process.uid == 0
 		@options = options
 		@config = YAML.load_file(@options[:configfile])
         @connected = nil
 		setupDirs
+        daemonStatus if @options[:status]
         pidMan
 
 		@interface = @config["interface"]
@@ -87,15 +114,22 @@ class Wicmand
 		autoConnect
 		setupListener  # must be the LAST THING done by initialize as it never returns
 	end
+    ########## Code related to actual network management
+    def ifup
+		puts "configuring interface #{@interface}" if @options[:verbose]
+		Open3.popen3('ifconfig', @interface, 'up') { |i,o,e,t|
+			raise "Error configuring interface #{@interface}!\nCheck that the interface exists" unless t.value == 0
+		}
+    end
     def getPing (ip)
         Open3.popen3('ping', '-n', '-c 4', ip) { |i,o,e,t|
             i = 0
             while output = o.gets
-                puts output 
                 if / \d*\.\d*\/(\d*\.\d*)/ =~ output
                     return $1.to_i
                 end
             end
+            return 0
         }
     end
     def healthCheck
@@ -108,21 +142,25 @@ class Wicmand
         r = "Router: #{@router}\t"
         if @router_ping >0 
             r << "Average ping: #{@router_ping}\n"
+            puts "Average ping: #{@router_ping}\n"
         else
             r << "Status: unreachable.\n"
+            puts "Status: unreachable.\n"
         end
         if @internet_ping > 0 
-            r << "Internet ping: #{internet_ping}\n"
+            r << "Internet ping: #{@internet_ping}\n"
+            puts "Internet ping: #{@internet_ping}\n"
         else
             r << "Internet unreachable"
+            puts "Internet unreachable"
         end
         return r
     end
 	# Creates a listening socket for client connections
-	def setupListener
-		sfile = File.join(@config["temp"], "wicmand.socket")
-		File.unlink(sfile) rescue nil;
-		@socket = UNIXServer.new(sfile)
+    def setupListener
+        sfile = File.join(@config["temp"], "wicmand.socket")
+        File.unlink(sfile) rescue nil;
+        @socket = UNIXServer.new(sfile)
         File.chmod(0666, sfile)
         while true
             begin
@@ -168,109 +206,108 @@ class Wicmand
                     client.write "Your request is unsupported: #{conn}"
                 end
                 client.close
-            end rescue nil # Ensures that the daemon does not quit because of errors here
-        end
-	end
-	# Hashes the ESSID to make sure we don't do anything funny on the filesystem
-	def configFile(essid)
-		File.join(@config["varlib"], Digest::MD5.hexdigest(essid))
-	end
-	# Generates the wpa configuration file for an essid/passphrase and stores it in varlib
-	def genConfig(essid, passphrase)
-		puts "Generating configuration for #{essid}" if @options[:verbose]
+            rescue
+                client.write "wicmand encountered an internal error"
+                client.close
+            end 
+        end 
+    end
+    # Hashes the ESSID to make sure we don't do anything funny on the filesystem
+    def configFile(essid)
+        File.join(@config["varlib"], Digest::MD5.hexdigest(essid))
+    end
+    # Generates the wpa configuration file for an essid/passphrase and stores it in varlib
+    def genConfig(essid, passphrase)
+        puts "Generating configuration for #{essid}" if @options[:verbose]
         return "needpp" if passphrase == ""
-		Open3.popen3('wpa_passphrase', essid, passphrase) { |i,o,e,t|
-			return "Error generating configuration for ESSID #{essid}\nCheck that wpa_supplicant is installed" unless t.value == 0
-			File.open(configFile(essid), 'w') { |f| f.puts o.gets(nil) }
-		}
-		return "Configuration ok"
-	end
-	# Creates and ensures permission/ownership of the /var/lib directory used to store config
-	def setupDirs
-		puts "configuring varlib directory..." if @options[:verbose]
+        Open3.popen3('wpa_passphrase', essid, passphrase) { |i,o,e,t|
+            return "Error generating configuration for ESSID #{essid}\nCheck that wpa_supplicant is installed" unless t.value == 0
+            File.open(configFile(essid), 'w') { |f| f.puts o.gets(nil) }
+        }
+        return "Configuration ok"
+    end
+    # Creates and ensures permission/ownership of the /var/lib directory used to store config
+    def setupDirs
+        puts "configuring varlib directory..." if @options[:verbose]
         raise "Malformed configuration file" if @config["varlib"].nil?
-		Dir.mkdir(@config["varlib"], 0700) unless Dir.exists?(@config["varlib"])
-		File.chown(0, 0, @config["varlib"])
-		File.chmod(0700, @config["varlib"])
-	end
-	# Puts interface down and disconnects
-	def disconnect!
-		puts "Disconnecting from all networks!" if @options[:verbose]
-        file = ""
-        File.open(pidfile("wpa_supplicant"), 'r') {|f| file = f.gets.chomp } rescue nil
-		Open3.popen3('kill', file) { |i,o,e,t| }
-        File.open(pidfile("dhclient"), 'r') {|f| file = f.gets.chomp } rescue nil
-		Open3.popen3('kill', file) { |i,o,e,t| }
+        Dir.mkdir(@config["varlib"], 0700) unless Dir.exists?(@config["varlib"])
+        File.chown(0, 0, @config["varlib"])
+        File.chmod(0700, @config["varlib"])
+    end
+    # Puts interface down and disconnects
+    def disconnect!
+        puts "Disconnecting from all networks!" if @options[:verbose]
+        Open3.popen3('pkill', "wpa_supplicant") { |i,o,e,t| }
+        Open3.popen3('pkill', "dhclient") { |i,o,e,t| }
         @connected = nil
-		return "Disconnected"
-	end
-	# Attempts to connect to a given network. BLOCKING
-	def connect!(essid)
-		return "needconf" unless File.exists?(configFile(essid))
-		disconnect!
-		puts "Connecting to #{essid}" if @options[:verbose]
-		pid = fork {
+        return "Disconnected"
+    end
+    # Attempts to connect to a given network. BLOCKING
+    def connect!(essid)
+        return "needconf" unless File.exists?(configFile(essid))
+        disconnect!
+        puts "Connecting to #{essid}" if @options[:verbose]
+        pid = fork {
             ifup
-			Open3.popen3('wpa_supplicant','-B', '-i', @interface, '-c', configFile(essid), 
-                         '-P', pidfile("wpa_supplicant")) { |i,o,e,t|
-				raise "Error aquiring network #{essid}!\nCheck that the passphrase configured is correct" unless t.value == 0
-			}
-			sleep(2)
-			Open3.popen3('dhclient', @interface, '-pf', pidfile("dhclient")) { |i, o, e, t|
-				raise "Error aquiring IP from network #{essid}!" unless t.value == 0
-			}
-			puts "Connection established" if @options[:verbose]
-		}
-		begin Timeout.timeout(20) do
-			Process.wait
+            Open3.popen3('wpa_supplicant','-B', '-i', @interface, '-c', configFile(essid)) { |i,o,e,t|
+                return "Error aquiring network #{essid}!\nCheck that the passphrase configured is correct" unless t.value == 0
+            }
+                         sleep(2)
+                         Open3.popen3('dhclient', @interface) { |i, o, e, t|
+                             return "Error aquiring IP from network #{essid}!" unless t.value == 0
+                         }
+                         puts "Connection established" if @options[:verbose]
+        }
+        begin Timeout.timeout(20) do
+            Process.wait
             @connected = essid
-			return "Connected to #{essid}"
-		end
-		rescue Timeout::Error
-			Process.kill 9, pid
-			# collect status so it doesn't stick around as zombie process
-			Process.wait pid
+            return "Connected to #{essid}"
+        end
+        rescue Timeout::Error
+            Process.kill 9, pid
+            # collect status so it doesn't stick around as zombie process
+            Process.wait pid
             puts "Unable to connect after 20 seconds, giving up!" if @options[:verbose]
-			return "Unable to connect after 20 seconds, giving up!"
-		end
-	end
-	# Creates a list with available interfaces. Caches results for "cache" secs
-	def setCache
-		puts "scanning available networks" if @options[:verbose]
+            return "Unable to connect after 20 seconds, giving up!"
+        end
+    end
+    # Creates a list with available interfaces. Caches results for "cache" secs
+    def setCache
+        puts "scanning available networks" if @options[:verbose]
         ifup
-		@available = []
-		# Code here could use a clean up
-		Open3.popen3('iwlist', @interface, 'scan') { |i,o,e,t|
-			o.gets # throw away first line
-			while output = o.gets 
-				if /Cell (?<n>\d.) - Address: (?<add>.*)/ =~ output
-					parsing = n.to_i - 1; # Cell starts at 01, array starts at 0
-					@available[parsing] = {}
-					@available[parsing]["addr"] = add
-				end
-				if /Quality=(?<sig>\d\d)\/70/ =~ output
-					@available[parsing]["sig"] = sig 
-				end
-				if /Encryption key:(?<enc>.*)/ =~ output
-					@available[parsing]["enc"] = enc 
-				end
-				if /ESSID:"(?<essid>.*)"/ =~ output
-					@available[parsing]["essid"] = essid 
-				end
-				if /IE: IEEE \d*\.\d\d.\/(?<enctype>.*) V/ =~ output
-					@available[parsing]["enctype"] = enctype 
-				end
-			end	
-			puts "Error scanning interface #{@interface} for connections!" unless t.value == 0
-		}
-		@cacheTime = Time.now
-	end
-	# Returns the available networks.
-	def getNetworks(plain=false)
-		if Time.now - @cacheTime > @config["validcache"]
-			setCache
-		end
-		return @available if plain
+        @available = []
+        # Code here could use a clean up
+        Open3.popen3('iwlist', @interface, 'scan') { |i,o,e,t|
+            o.gets # throw away first line
+            while output = o.gets 
+                if /Cell (?<n>\d.) - Address: (?<add>.*)/ =~ output
+                    parsing = n.to_i - 1; # Cell starts at 01, array starts at 0
+                    @available[parsing] = {}
+                    @available[parsing]["addr"] = add
+                end
+                if /Quality=(?<sig>\d\d)\/70/ =~ output
+                    @available[parsing]["sig"] = sig 
+                end
+                if /Encryption key:(?<enc>.*)/ =~ output
+                    @available[parsing]["enc"] = enc 
+                end
+                if /ESSID:"(?<essid>.*)"/ =~ output
+                    @available[parsing]["essid"] = essid 
+                end
+                if /IE: IEEE \d*\.\d\d.\/(?<enctype>.*) V/ =~ output
+                    @available[parsing]["enctype"] = enctype 
+                end
+            end	
+            puts "Error scanning interface #{@interface} for connections!" unless t.value == 0
+        }
+        @cacheTime = Time.now
+    end
+    # Returns the available networks.
+    def getNetworks(plain=false)
+        if Time.now - @cacheTime > @config["validcache"]
+            setCache
+        end
+        return @available if plain
 		ret = "Address\t\t\tSignal\tEncrypt\tESSID\n"
 		@available.each{ |a|
 			ret << "#{a["addr"]}\t#{(a["sig"].to_f/70.0*100.0).floor}%\t"
@@ -318,7 +355,7 @@ class Wicmand
 		return "Configured to avoid autoconnect to #{essid}"
 	end
     def showStatus
-        r = "wicman version #{Version} status:\n"
+        r = "wicmand version #{Version} status:\n\n"
         if @connected.nil?
             r << "Not connected\n\n"
         else

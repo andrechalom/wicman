@@ -14,7 +14,7 @@ PATH=/sbin:/bin:/usr/bin
 DESC="wicmand: wireless connection manager"
 NAME=wicmand
 DAEMON=/usr/sbin/$NAME
-PIDFILE=/var/run/$NAME.pid
+PIDFILE=/var/lib/wicmand/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
 
 . /lib/init/vars.sh

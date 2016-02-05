@@ -9,7 +9,7 @@ managers such as NetworkManager, wicd, connman. Stop and disable
 these connection managers before starting wicman
 
 # Depends:
-wicman depends on ruby (tested on 1.9.3), wpa_supplicant, iwlist
+wicman depends on ruby (tested on 1.9.3), wpa_supplicant, iwlist from package wireless-tools
 and ifconfig/route from net-tools. You can install these with:
 ```
 sudo apt-get install ruby wpasupplicant wireless-tools net-tools
