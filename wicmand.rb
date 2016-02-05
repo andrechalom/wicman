@@ -15,31 +15,31 @@ Version = "0.0.5"
 # Parses command line arguments
 options = {}
 optparse = OptionParser.new do |opts|
-	opts.banner = "wicman daemon version #{Version}\nUsage:"
-	options[:verbose] = false
-	opts.on( '-v', '--verbose', 'Output more information' ) do
-		options[:verbose] = true
-	end
-	options[:configfile] = "/etc/wicmand.conf"
-	opts.on( '-f', '--configfile FILE', 'Use alternate configuration file' ) { |file|
-		options[:configfile] = file
-	}
-	options[:daemon] = true
-	opts.on( '-n', '--no_daemon', 'Don\'t run as a daemon','(runs in the foreground)' ) {
-		options[:daemon] = false
-	}
+    opts.banner = "wicman daemon version #{Version}\nUsage:"
+    options[:verbose] = false
+    opts.on( '-v', '--verbose', 'Output more information' ) do
+        options[:verbose] = true
+    end
+    options[:configfile] = "/etc/wicmand.conf"
+    opts.on( '-f', '--configfile FILE', 'Use alternate configuration file' ) { |file|
+        options[:configfile] = file
+    }
+    options[:daemon] = true
+    opts.on( '-n', '--no_daemon', 'Don\'t run as a daemon','(runs in the foreground)' ) {
+        options[:daemon] = false
+    }
     options[:status] = false
-	opts.on( '-s', '--status', 'Shows only the daemon running status' ) {
-		options[:status] = true
-	}
+    opts.on( '-s', '--status', 'Shows only the daemon running status' ) {
+        options[:status] = true
+    }
     options[:kill] = false
-	opts.on( '-k', '--kill', 'Force closes an active instance of wicmand' ) {
-		options[:kill] = true
-	}
-	opts.on( '-h', '--help', 'Display this screen' ) {
-		puts opts
-		exit
-	}
+    opts.on( '-k', '--kill', 'Force closes an active instance of wicmand' ) {
+        options[:kill] = true
+    }
+    opts.on( '-h', '--help', 'Display this screen' ) {
+        puts opts
+        exit
+    }
 end
 optparse.parse!
 
@@ -82,10 +82,10 @@ class Wicmand
         exit
     end
     def pidfile (str = "wicmand")
-            File.join(@config["varlib"],"#{str}.pid")
+        File.join(@config["varlib"],"#{str}.pid")
     end
     def pidMan #Manages pid-related and signals
-		Process.daemon(nil, true) if @options[:daemon]
+        Process.daemon(nil, true) if @options[:daemon]
         Signal.trap("SIGHUP") {clean_exit} 
         Signal.trap("SIGINT") {clean_exit} 
         # else check for an instance, and start
@@ -99,27 +99,27 @@ class Wicmand
         File.open(pidfile, 'w') { |f| f.puts Process.pid }
     end
     ########### Initialization code
-	def initialize(options = {}) 
-		raise 'wicmand must run as root' unless Process.uid == 0
-		@options = options
-		@config = YAML.load_file(@options[:configfile])
+    def initialize(options = {}) 
+        raise 'wicmand must run as root' unless Process.uid == 0
+        @options = options
+        @config = YAML.load_file(@options[:configfile])
         @connected = nil
-		setupDirs
+        setupDirs
         daemonStatus if @options[:status]
         pidMan
 
-		@interface = @config["interface"]
-		puts "wicmand #{Version} starting..."
-		setCache
-		autoConnect
-		setupListener  # must be the LAST THING done by initialize as it never returns
-	end
+        @interface = @config["interface"]
+        puts "wicmand #{Version} starting..."
+        setCache
+        autoConnect
+        setupListener  # must be the LAST THING done by initialize as it never returns
+    end
     ########## Code related to actual network management
     def ifup
-		puts "configuring interface #{@interface}" if @options[:verbose]
-		Open3.popen3('ifconfig', @interface, 'up') { |i,o,e,t|
-			raise "Error configuring interface #{@interface}!\nCheck that the interface exists" unless t.value == 0
-		}
+        puts "configuring interface #{@interface}" if @options[:verbose]
+        Open3.popen3('ifconfig', @interface, 'up') { |i,o,e,t|
+            raise "Error configuring interface #{@interface}!\nCheck that the interface exists" unless t.value == 0
+        }
     end
     def getPing (ip)
         Open3.popen3('ping', '-n', '-c 4', ip) { |i,o,e,t|
@@ -135,9 +135,9 @@ class Wicmand
     def healthCheck
         @router = "192.168.1.1" # TODO: get this from "route -n"
         @internet = "8.8.8.8" # TODO: get this from config
-		puts "pinging router #{@router}" if @options[:verbose]
+        puts "pinging router #{@router}" if @options[:verbose]
         @router_ping = getPing(@router)
-		puts "pinging internet #{@internet}" if @options[:verbose]
+        puts "pinging internet #{@internet}" if @options[:verbose]
         @internet_ping = getPing(@internet)
         r = "Router: #{@router}\t"
         if @router_ping >0 
@@ -156,7 +156,7 @@ class Wicmand
         end
         return r
     end
-	# Creates a listening socket for client connections
+    # Creates a listening socket for client connections
     def setupListener
         sfile = File.join(@config["temp"], "wicmand.socket")
         File.unlink(sfile) rescue nil;
@@ -252,11 +252,11 @@ class Wicmand
             Open3.popen3('wpa_supplicant','-B', '-i', @interface, '-c', configFile(essid)) { |i,o,e,t|
                 return "Error aquiring network #{essid}!\nCheck that the passphrase configured is correct" unless t.value == 0
             }
-                         sleep(2)
-                         Open3.popen3('dhclient', @interface) { |i, o, e, t|
-                             return "Error aquiring IP from network #{essid}!" unless t.value == 0
-                         }
-                         puts "Connection established" if @options[:verbose]
+            sleep(2)
+            Open3.popen3('dhclient', @interface) { |i, o, e, t|
+                return "Error aquiring IP from network #{essid}!" unless t.value == 0
+            }
+            puts "Connection established" if @options[:verbose]
         }
         begin Timeout.timeout(20) do
             Process.wait
@@ -308,52 +308,52 @@ class Wicmand
             setCache
         end
         return @available if plain
-		ret = "Address\t\t\tSignal\tEncrypt\tESSID\n"
-		@available.each{ |a|
-			ret << "#{a["addr"]}\t#{(a["sig"].to_f/70.0*100.0).floor}%\t"
-			if a["enc"] == "on"
-				if a["enctype"] == "WPA2"
-					ret << "WPA2"
-				else
-					ret << "other"
-				end
-			else
-				ret << "open"
-			end
-			ret << "\t#{a["essid"]}\n"
-		}
-		return ret
-	end
-	def autoConnect
-		# Reads priorities from auto.conf
-		priority = []
-		autoConfig = YAML.load_file(File.join(@config["varlib"], "auto.conf")) rescue autoConfig = {}
-		autoConfig.sort_by {|key, value| -value}.each {|e| priority << e[0]}
-		return "Unable to autoconnect: no networks are configured to autoconnect!" if priority.length == 0
+        ret = "Address\t\t\tSignal\tEncrypt\tESSID\n"
+        @available.each{ |a|
+            ret << "#{a["addr"]}\t#{(a["sig"].to_f/70.0*100.0).floor}%\t"
+            if a["enc"] == "on"
+                if a["enctype"] == "WPA2"
+                    ret << "WPA2"
+                else
+                    ret << "other"
+                end
+            else
+                ret << "open"
+            end
+            ret << "\t#{a["essid"]}\n"
+        }
+        return ret
+    end
+    def autoConnect
+        # Reads priorities from auto.conf
+        priority = []
+        autoConfig = YAML.load_file(File.join(@config["varlib"], "auto.conf")) rescue autoConfig = {}
+        autoConfig.sort_by {|key, value| -value}.each {|e| priority << e[0]}
+        return "Unable to autoconnect: no networks are configured to autoconnect!" if priority.length == 0
 
-		# Reads available networks
-		nets = []
-		getNetworks(true).each{|n| nets << n["essid"]} 
+        # Reads available networks
+        nets = []
+        getNetworks(true).each{|n| nets << n["essid"]} 
 
-		# TODO: remove networks marked as FAILED
-		nets = priority & nets # Intersection, ordered by priority
+        # TODO: remove networks marked as FAILED
+        nets = priority & nets # Intersection, ordered by priority
 
-		return "Unable to autoconnect: no configured nets available!" if nets.length == 0
-		return connect!(nets[0])
-	end
-	# adds this network to the autoconnect list
-	def addToAC(essid, pr)
-		autoConfig = YAML.load_file(File.join(@config["varlib"], "auto.conf")) rescue autoConfig = {}
-		autoConfig[essid.to_str] = pr.to_i
-		File.open(File.join(@config["varlib"], "auto.conf"), 'w') { |f| f.puts autoConfig.to_yaml }
-		return "Configured to autoconnect to #{essid} with priority #{pr}"
-	end
-	def dropFromAC(essid)
-		autoConfig = YAML.load_file(File.join(@config["varlib"], "auto.conf")) rescue autoConfig = {}
-		autoConfig.delete(essid)
-		File.open(File.join(@config["varlib"], "auto.conf"), 'w') { |f| f.puts autoConfig.to_yaml }
-		return "Configured to avoid autoconnect to #{essid}"
-	end
+        return "Unable to autoconnect: no configured nets available!" if nets.length == 0
+        return connect!(nets[0])
+    end
+    # adds this network to the autoconnect list
+    def addToAC(essid, pr)
+        autoConfig = YAML.load_file(File.join(@config["varlib"], "auto.conf")) rescue autoConfig = {}
+        autoConfig[essid.to_str] = pr.to_i
+        File.open(File.join(@config["varlib"], "auto.conf"), 'w') { |f| f.puts autoConfig.to_yaml }
+        return "Configured to autoconnect to #{essid} with priority #{pr}"
+    end
+    def dropFromAC(essid)
+        autoConfig = YAML.load_file(File.join(@config["varlib"], "auto.conf")) rescue autoConfig = {}
+        autoConfig.delete(essid)
+        File.open(File.join(@config["varlib"], "auto.conf"), 'w') { |f| f.puts autoConfig.to_yaml }
+        return "Configured to avoid autoconnect to #{essid}"
+    end
     def showStatus
         r = "wicmand version #{Version} status:\n\n"
         if @connected.nil?
@@ -365,16 +365,16 @@ class Wicmand
         r << showAC
         return r
     end
-	def showAC
-		autoConfig = YAML.load_file(File.join(@config["varlib"], "auto.conf")) rescue autoConfig = {}
-		return "No networks configured for autoconnect" if autoConfig == {}
-		ret = "The following networks will be attempted by autoconnect:\n"
-		ret << "Priority\tESSID\n"
-		autoConfig.sort_by{ |k, v| -v}.each{ |a|
-			ret << "#{a[1]}\t\t#{a[0]}\n"
-		}
-		return ret
-	end
+    def showAC
+        autoConfig = YAML.load_file(File.join(@config["varlib"], "auto.conf")) rescue autoConfig = {}
+        return "No networks configured for autoconnect" if autoConfig == {}
+        ret = "The following networks will be attempted by autoconnect:\n"
+        ret << "Priority\tESSID\n"
+        autoConfig.sort_by{ |k, v| -v}.each{ |a|
+            ret << "#{a[1]}\t\t#{a[0]}\n"
+        }
+        return ret
+    end
 end
 
 # Starts the daemon with command-line options

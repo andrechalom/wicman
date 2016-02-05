@@ -15,115 +15,115 @@ Version = "0.0.4"
 # Parses command line arguments
 options = {}
 optparse = OptionParser.new do |opts|
-	opts.banner = "wicman version #{Version}\nUsage:\nOnly one command may be specified at a time"
+    opts.banner = "wicman version #{Version}\nUsage:\nOnly one command may be specified at a time"
 
-	opts.separator ""
-	opts.separator "General options:"
+    opts.separator ""
+    opts.separator "General options:"
 
-	options[:verbose] = false
-	opts.on( '-v', '--verbose', 'Output more information' ) do
-		options[:verbose] = true
-	end
-	options[:configfile] = "/etc/wicmand.conf"
-	opts.on( '-f', '--configfile FILE', 'Use alternate configuration file' ) { |file|
-		options[:configfile] = file
-	}
+    options[:verbose] = false
+    opts.on( '-v', '--verbose', 'Output more information' ) do
+        options[:verbose] = true
+    end
+    options[:configfile] = "/etc/wicmand.conf"
+    opts.on( '-f', '--configfile FILE', 'Use alternate configuration file' ) { |file|
+        options[:configfile] = file
+    }
     opts.separator ""
     opts.separator "Commands:"
-	opts.separator "(use \"\" if the network name contains spaces)"
-	options[:command] = nil
-	options[:essid] = nil
-	options[:passphrase] = nil
-	options[:pr] = 0
-	opts.on( '-l', '--list', 'List available networks' ) do
-		options[:command] = "list"
-	end
-	opts.on( '-g', '--configure ESSID', 
-			'Configures wicman to use a passphrase to',
-			'connect to this ESSID' ) do |essid|
-		options[:command] = "conf"
-		options[:essid] = essid
-	end
-	opts.on( '-c', '--connect [ESSID]', 
-			'Connects to a specified network. If no ESSID',
-			'is given, connects to the autoconnect list.' ) do |essid|
-		options[:command] = "conn"
-		options[:essid] = essid
-	end
-	opts.on( '-a', '--autoconnect ESSID', 
-			'wicman will autoconnect to this network',
-			'when available' ) do |essid|
-		options[:command] = "auto"
-		options[:essid] = essid
-	end
-	opts.on( '-s', '--show', 
-			'Shows the network status and list of networks',
-			'enabled for autoconnection.') do |essid|
-		options[:command] = "show"
-	end
-	opts.on( '-x', '--dont-autoconnect ESSID', 
-			'Drops ESSID from the list of auto-connections.') do |essid|
-		options[:command] = "xauto"
-		options[:essid] = essid
-	end
-	opts.on( '-d', '--disconnect', 'Disconnects from all networks' ) do 
-		options[:command] = "disc"
-	end
-	opts.on( '-H', '--health', 'Forces a health check on the connection' ) do 
-		options[:command] = "health"
-	end
-	opts.on( '-h', '--help', 'Display this screen' ) {
-		puts opts
-		exit
-	}
-    opts.separator ""
-    opts.separator "Specific options:"
-	opts.on( '-p', '--passphrase [pp]', 
-			'With -g or -c, sets the passphrase',
-			'If -p is specified but no passphrase is given, reads from stdin' ) do |pp|
-		raise "-p should only be used after -g or -c" if options[:command] != "conf" and options[:command] != "conn"
-        if pp.nil? then
-            puts "Enter passphrase for network #{options[:essid]}:"
-            system "stty -echo"
-            pp = gets.chomp()
-            system "stty echo"
-        end
-		options[:pp] = pp
-	end
-	opts.on( '-r', '--priority pr', 'With -a, sets the priority for this network',
-						'Higher priority nets are attempted first' ) do |pr|
-		raise "-r should only be used with -a" if options[:command] != "auto"
-		options[:pr] = pr
-	end
+    opts.separator "(use \"\" if the network name contains spaces)"
+    options[:command] = nil
+    options[:essid] = nil
+    options[:passphrase] = nil
+    options[:pr] = 0
+    opts.on( '-l', '--list', 'List available networks' ) do
+        options[:command] = "list"
+    end
+    opts.on( '-g', '--configure ESSID', 
+            'Configures wicman to use a passphrase to',
+            'connect to this ESSID' ) do |essid|
+                options[:command] = "conf"
+                options[:essid] = essid
+            end
+            opts.on( '-c', '--connect [ESSID]', 
+                    'Connects to a specified network. If no ESSID',
+                    'is given, connects to the autoconnect list.' ) do |essid|
+                        options[:command] = "conn"
+                        options[:essid] = essid
+                    end
+                    opts.on( '-a', '--autoconnect ESSID', 
+                            'wicman will autoconnect to this network',
+                            'when available' ) do |essid|
+                                options[:command] = "auto"
+                                options[:essid] = essid
+                            end
+                            opts.on( '-s', '--show', 
+                                    'Shows the network status and list of networks',
+                                    'enabled for autoconnection.') do |essid|
+                                        options[:command] = "show"
+                                    end
+                                    opts.on( '-x', '--dont-autoconnect ESSID', 
+                                            'Drops ESSID from the list of auto-connections.') do |essid|
+                                        options[:command] = "xauto"
+                                        options[:essid] = essid
+                                    end
+                                    opts.on( '-d', '--disconnect', 'Disconnects from all networks' ) do 
+                                        options[:command] = "disc"
+                                    end
+                                    opts.on( '-H', '--health', 'Forces a health check on the connection' ) do 
+                                        options[:command] = "health"
+                                    end
+                                    opts.on( '-h', '--help', 'Display this screen' ) {
+                                        puts opts
+                                        exit
+                                    }
+                                    opts.separator ""
+                                    opts.separator "Specific options:"
+                                    opts.on( '-p', '--passphrase [pp]', 
+                                            'With -g or -c, sets the passphrase',
+                                            'If -p is specified but no passphrase is given, reads from stdin' ) do |pp|
+                                                raise "-p should only be used after -g or -c" if options[:command] != "conf" and options[:command] != "conn"
+                                                if pp.nil? then
+                                                    puts "Enter passphrase for network #{options[:essid]}:"
+                                                    system "stty -echo"
+                                                    pp = gets.chomp()
+                                                    system "stty echo"
+                                                end
+                                                options[:pp] = pp
+                                            end
+                                            opts.on( '-r', '--priority pr', 'With -a, sets the priority for this network',
+                                                    'Higher priority nets are attempted first' ) do |pr|
+                                                raise "-r should only be used with -a" if options[:command] != "auto"
+                                                options[:pr] = pr
+                                            end
 
-	opts.separator ""
-    opts.separator "Examples:"
-    opts.separator "wicman -g \"my net\" -p mypphrase    # configures before first use"
-    opts.separator "wicman -c \"my net\"                 # connects only this time"
-    opts.separator "wicman -a \"my net\" -r 99           # autoconnect with a high priority"
-	opts.separator ""
+                                            opts.separator ""
+                                            opts.separator "Examples:"
+                                            opts.separator "wicman -g \"my net\" -p mypphrase    # configures before first use"
+                                            opts.separator "wicman -c \"my net\"                 # connects only this time"
+                                            opts.separator "wicman -a \"my net\" -r 99           # autoconnect with a high priority"
+                                            opts.separator ""
 end
 
 begin
-	optparse.parse!
+    optparse.parse!
 rescue
-	puts "Error while parsing input:"
-	puts $!
-	exit
+    puts "Error while parsing input:"
+    puts $!
+    exit
 end
 
 if options[:command].nil?
-	puts "You must specify one command for wicman. Use wicman -h for details"
-	exit
+    puts "You must specify one command for wicman. Use wicman -h for details"
+    exit
 end
 
 puts "Reading global configuration from #{options[:configfile]}" if options[:verbose]
 begin
-	config = YAML.load_file(options[:configfile])
+    config = YAML.load_file(options[:configfile])
 rescue
-	puts "Configuration file at #{options[:configfile]} not found or not readable."
-	puts $!
-	exit
+    puts "Configuration file at #{options[:configfile]} not found or not readable."
+    puts $!
+    exit
 end
 
 sfile = File.join(config["temp"], "wicmand.socket")
