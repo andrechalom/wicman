@@ -50,35 +50,35 @@ if options[:kill] then # If --kill was given, kill the active instance
         exit
     end
     puts "Ending all active wicmand processes"
-    Open3.popen3('pkill', '-HUP', '-f', 'wicmand') { |i,o,e,t| }
+    `pkill -HUP -f wicmand`
     exit
 end 
 
 class Wicmand
     ########## Functions related to managing the wicmand life cycle: daemon status, kill, managing pids
+    # Helper function to open a file, read a single number and exit
+    def get_number (file)
+        File.open(file) { |f| return f.gets.chomp }
+    end
     def clean_exit
         puts "wicmand exiting...\n"
         disconnect!
+        Process.kill 9, @monitor unless @monitor.nil?
+        Process.wait @monitor unless @monitor.nil?
         File.delete(pidfile) rescue nil
         exit
     end
     def daemonStatus
         if File.exists?(pidfile)
-            pid = 0
-            File.open(pidfile) { |f| pid = f.gets.chomp }
-
-            Open3.popen3('ps', '-p', pid) { |i,o,e,t|
-                o.gets
-                line = o.gets
-                if line =~ /ruby/ then
+            Open3.popen3('ps', '-p', get_number(pidfile)) { |i,o,e,t|
+                o.gets; line = o.gets # gets the second line
+                if line =~/ruby/ 
                     puts "wicmand is up"
-                else
-                    puts "wicmand is down"
+                    exit
                 end
             }
-        else
-            puts "wicmand is down"
         end
+        puts "wicmand is down"
         exit
     end
     def pidfile (str = "wicmand")
@@ -91,9 +91,7 @@ class Wicmand
         # else check for an instance, and start
         if File.exists?(pidfile)
             puts "WARNING: wicmand pid file found." 
-            pid = 0
-            File.open(pidfile, 'r') { |f| pid = f.gets.chomp }
-            Open3.popen3('kill', '-HUP', pid) { |i,o,e,t| }
+            `kill -HUP #{get_number(pidfile)}`
             sleep(2)
         end
         File.open(pidfile, 'w') { |f| f.puts Process.pid }
@@ -112,47 +110,75 @@ class Wicmand
         puts "wicmand #{Version} starting..."
         setCache
         autoConnect
+        setupMonitor # monitor will try to autoconnect if droped
         setupListener  # must be the LAST THING done by initialize as it never returns
     end
     ########## Code related to actual network management
+    def setupMonitor
+        pid = fork
+        if pid.nil?
+            exit if @config["reconnect"] == 0
+            sfile = File.join(@config["temp"], "wicmand.socket")
+            loop {
+                sleep @config["reconnect"].to_i
+                # Are we purposefuly disconnected?
+                client = UNIXSocket.new sfile
+                client.write "cname\n"
+                status = client.gets
+                if !status.nil?
+                    ping = getPing(@config["internet"])
+                    if ping == 0
+                        client = UNIXSocket.new sfile
+                        client.write "conn \"\" \"\"\n" 
+                        status = client.gets
+                        puts status
+                    end
+                end
+                client.close
+            }
+        end
+        @monitor = pid
+    end
     def ifup
         puts "configuring interface #{@interface}" if @options[:verbose]
         Open3.popen3('ifconfig', @interface, 'up') { |i,o,e,t|
             raise "Error configuring interface #{@interface}!\nCheck that the interface exists" unless t.value == 0
         }
     end
+    def getrouter
+        Open3.popen3('route', '-n') { |i,o,e,t|
+            while line = o.gets
+                if line =~ /^0.0.0.0\s*([\d.]*).*#{@interface}/
+                    return $1
+                end
+            end
+        }
+    end
     def getPing (ip)
-        Open3.popen3('ping', '-n', '-c 4', ip) { |i,o,e,t|
+        return 0 if ip.nil?
+        Open3.popen3('ping', '-n', '-c 3', '-w 2', '-i 0.2', ip) { |i,o,e,t|
             i = 0
             while output = o.gets
-                if / \d*\.\d*\/(\d*\.\d*)/ =~ output
-                    return $1.to_i
+                if / \d*\.\d*\/(\d*\.\d*)/ =~ output ## ONLY matches the summary line
+                    return $1.to_f
                 end
             end
             return 0
         }
     end
     def healthCheck
-        @router = "192.168.1.1" # TODO: get this from "route -n"
-        @internet = "8.8.8.8" # TODO: get this from config
-        puts "pinging router #{@router}" if @options[:verbose]
-        @router_ping = getPing(@router)
-        puts "pinging internet #{@internet}" if @options[:verbose]
-        @internet_ping = getPing(@internet)
-        r = "Router: #{@router}\t"
+        @router_ping = getPing(@route)
+        @internet_ping = getPing(@config["internet"])
+        r = "Router: #{@route}\n"
         if @router_ping >0 
-            r << "Average ping: #{@router_ping}\n"
-            puts "Average ping: #{@router_ping}\n"
+            r << "Router ping: #{@router_ping} ms\n"
         else
-            r << "Status: unreachable.\n"
-            puts "Status: unreachable.\n"
+            r << "Router unreachable.\n"
         end
         if @internet_ping > 0 
-            r << "Internet ping: #{@internet_ping}\n"
-            puts "Internet ping: #{@internet_ping}\n"
+            r << "Internet ping: #{@internet_ping} ms\n"
         else
-            r << "Internet unreachable"
-            puts "Internet unreachable"
+            r << "Internet unreachable\n"
         end
         return r
     end
@@ -167,8 +193,6 @@ class Wicmand
                 client = @socket.accept
                 conn = client.gets.chomp
                 case conn
-                when /^health/
-                    client.write healthCheck
                 when /^disc/
                     client.write disconnect!
                 when /^conn "(.*)" "(.*)"/ 
@@ -202,6 +226,8 @@ class Wicmand
                     client.write getNetworks
                 when /^show/
                     client.write showStatus
+                when /^cname/ 
+                    client.write @connected
                 else
                     client.write "Your request is unsupported: #{conn}"
                 end
@@ -261,6 +287,7 @@ class Wicmand
         begin Timeout.timeout(20) do
             Process.wait
             @connected = essid
+            @route = getrouter()
             return "Connected to #{essid}"
         end
         rescue Timeout::Error
@@ -359,8 +386,8 @@ class Wicmand
         if @connected.nil?
             r << "Not connected\n\n"
         else
-            r << "Connected to #{@connected}\n"
-            r << healthCheck << "\n\n"
+            r << "Connected to #{@connected}. "
+            r << healthCheck << "\n"
         end
         r << showAC
         return r
@@ -378,4 +405,4 @@ class Wicmand
 end
 
 # Starts the daemon with command-line options
-wicmand = Wicmand.new(options)
+Wicmand.new(options)

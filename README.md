@@ -21,13 +21,17 @@ sudo apt-get install ruby wpasupplicant wireless-tools net-tools
 - Connect to hidden network
 - Persistent and safe storage of authentication keys
 - Configurable list of preferences for ranking connections
-- Autoconnect on connection dropped (TODO)
+- Autoconnect on connection dropped
 - Check for internet connection and switch to other available networks
   in case of router failure. (TODO)
 
 # How to install
-On Debian/Ubuntu, simply run ./install.sh. Then use wicman -h to display
-the help.
+First, edit the wicman.conf configuration file to match your needs 
+(the most important is the interface to use, by default wlan0).
+
+On Debian/Ubuntu, simply run ./install.sh to copy the files to /etc and /usr.
+
+Then use wicman -h to display the help.
 
 # Why?
 
@@ -46,9 +50,5 @@ and there is no provision for managing these options inside wicman.
 
 # TO DO:
 - stop passphrase from being written to disk
-- make an option for "show connection status"
-- health checks (autoconnect if dropped, change nets if 8.8.8.8 is unreachable)
 - extensions (iw instead of iwlist, dhcpd instead of dhclient, etc)
-- tidy up install.sh
 - option to sort list by Name or Strenght?
-- start w/o config file using reasonable defaults?
