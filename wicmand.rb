@@ -10,7 +10,7 @@ require 'digest'
 require 'socket'
 require 'timeout'
 
-Version = "0.0.5"
+Version = "1.0.0"
 
 # Parses command line arguments
 options = {}
@@ -131,7 +131,6 @@ class Wicmand
                         client = UNIXSocket.new sfile
                         client.write "conn \"\" \"\"\n" 
                         status = client.gets
-                        puts status
                     end
                 end
                 client.close
@@ -248,7 +247,14 @@ class Wicmand
         return "needpp" if passphrase == ""
         Open3.popen3('wpa_passphrase', essid, passphrase) { |i,o,e,t|
             return "Error generating configuration for ESSID #{essid}\nCheck that wpa_supplicant is installed" unless t.value == 0
-            File.open(configFile(essid), 'w') { |f| f.puts o.gets(nil) }
+            File.open(configFile(essid), 'w') { |f| 
+                output = o.gets(nil)
+                output.each_line { |l| 
+                    unless @config["safe"] and l =~ /^\s*\#psk/ then
+                        f.puts l
+                    end
+                }
+            }
         }
         return "Configuration ok"
     end
@@ -263,8 +269,8 @@ class Wicmand
     # Puts interface down and disconnects
     def disconnect!
         puts "Disconnecting from all networks!" if @options[:verbose]
-        Open3.popen3('pkill', "wpa_supplicant") { |i,o,e,t| }
-        Open3.popen3('pkill', "dhclient") { |i,o,e,t| }
+        `pkill wpa_supplicant`
+        `pkill dhclient`
         @connected = nil
         return "Disconnected"
     end

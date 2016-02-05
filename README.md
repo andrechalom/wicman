@@ -26,10 +26,14 @@ sudo apt-get install ruby wpasupplicant wireless-tools net-tools
   in case of router failure. (TODO)
 
 # How to install
-First, edit the wicman.conf configuration file to match your needs 
-(the most important is the interface to use, by default wlan0).
+First, edit the wicman.conf configuration file to match your needs:
+the most important are the interface to use, by default wlan0, and
+whether or not to use autoconnect on connection dropped (use reconnect: 0 
+to disable).
 
 On Debian/Ubuntu, simply run ./install.sh to copy the files to /etc and /usr.
+For other distributions, copy the files to the required locations, and edit
+the configuration files and init scripts to match.
 
 Then use wicman -h to display the help.
 
@@ -47,8 +51,3 @@ only basic functionality, inspired by the KISS philosophy (Keep it Simple
 and Straightforward). For instance, DNS servers are managed by 
 /etc/resolv.conf, dhcp configurations are managed by dhclient.conf,
 and there is no provision for managing these options inside wicman.
-
-# TO DO:
-- stop passphrase from being written to disk
-- extensions (iw instead of iwlist, dhcpd instead of dhclient, etc)
-- option to sort list by Name or Strenght?
